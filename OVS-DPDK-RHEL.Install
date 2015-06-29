@@ -1,0 +1,99 @@
+This document shows you how to compile dpdk. Followed by openvwitch to use dpdk.
+
+Step 1:
+Additions to kernel cmdline:
+
+iommu=pt intel_iommu=on default_hugepagesz=1G hugepagesz=1G transparent_hugepage=never hugepages=32
+
+Step 2:
+Reboot the linux serevr
+
+reboot
+
+Step 3:
+Dowload DPDK-2.0.0
+
+http://dpdk.org/browse/dpdk/snapshot/dpdk-2.0.0.tar.gz
+
+Step 4:
+Untar DPDK-2.0.0
+
+tar -xvf dpdk-2.0.0.tar.gz /usr/src/.
+cd /usr/src/dpdk-2.0.0
+export DPDK=$(pwd)
+export TGT=x86_64-native-linuxapp-gcc
+
+Step 5:
+Build DPDK
+
+make CONFIG_RTE_BUILD_COMBINE_LIBS=y CONFIG_RTE_BUILD_SHARED_LIB=n CONFIG_RTE_LIBRTE_IXGBE_PMD=y CONFIG_RTE_LIBRTE_IGB_PMD=y install T=$TGT
+
+Step 6:
+Download Openvswitch-2.3.2
+
+http://openvswitch.org/releases/openvswitch-2.3.2.tar.gz
+
+Step 7:
+Untar Openvswitch-2.3.2
+
+tar -xvf openvswitch-2.3.2.tar.gz /usr/src/.
+
+cd /usr/src/openvswitch-2.3.1
+export OVS=$(pwd)
+
+
+Step 8:
+Build Openvswitch
+
+./boot.sh
+./configure --disable-ssl --with-dpdk=$DPDK/$TGT LIBS=-ldl
+make
+make install
+
+
+Step 9:
+Bind DPDK to Ethernet Interfaces
+
+modprobe uio
+modprobe openvswitch
+insmod $DPDK/$TGT/kmod/igb_uio.ko
+$DPDK/tools/dpdk_nic_bind.py --bind=igb_uio eth2
+$DPDK/tools/dpdk_nic_bind.py --bind=igb_uio eth3
+
+Step 10:
+Check binding for listed devices
+
+$DPDK/tools/dpdk_nic_bind.py --status
+
+Step 11:
+Ensure hugetable is mounted:
+
+mount -t hugetlbfs -o pagesize=1G none /dev/hugepages
+
+Step 12:
+Setup Database (One time only):
+
+mkdir -p /usr/local/etc/openvswitch
+mkdir -p /usr/local/var/run/openvswitch
+$OVS/ovsdb/ovsdb-tool create /usr/local/etc/openvswitch/conf.db ./vswitchd/vswitch.ovsschema
+
+Step 13:
+Start ovsdb-server:
+
+$OVS/ovsdb/ovsdb-server --remote=punix:/usr/local/var/run/openvswitch/db.sock --remote=db:Open_vSwitch,Open_vSwitch,manager_options --detach
+
+Step 14:
+Initialize vSwitch (first time only):
+
+$OVS/utilities/ovs-vsctl --no-wait init
+
+Step 15:
+Configure vSwitch:
+
+ovs-vsctl --no-wait add-br br2 -- set bridge br2 datapath_type=netdev
+ovs-vsctl --no-wait add-br br3 -- set bridge br3 datapath_type=netdev
+ovs-vsctl --no-wait add-port br2 eth2 -- set Interface eth2 type=dpdk
+ovs-vsctl --no-wait add-port br3 eth3 -- set Interface eth3 type=dpdk
+ovs-vsctl show
+
+
